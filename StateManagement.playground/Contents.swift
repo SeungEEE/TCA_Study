@@ -28,10 +28,8 @@ func wolframAlpha(query: String, callback: @escaping (WolframAlphaResult?) -> Vo
     
     URLSession.shared.dataTask(with: components.url(relativeTo: nil)!) { data, response, error in
         callback(
-            data.flatMap {
-                try? JSONDecoder().decode(WolframAlphaResult.self, from: $0
-                )
-            }
+            data
+                .flatMap { try? JSONDecoder().decode(WolframAlphaResult.self, from: $0) }
         )
     }
     .resume()
@@ -65,11 +63,16 @@ struct ContentView: View {
     var body: some View {
         NavigationView {
             List {
-                NavigationLink(destination: CounterView(state: self.state)) {
+                NavigationLink(
+                    destination: CounterView(
+                        state: self.state)
+                ) {
                     Text("Counter demo")
                 }
                 
-                NavigationLink(destination: EmptyView()) {
+                NavigationLink(destination: FavoritePrimesView(
+                    state: self.$state.favoritePrimeState)
+                ) {
                     Text("Favorite primes")
                 }
             }
@@ -91,6 +94,24 @@ import Combine
 class AppState: ObservableObject {
     @Published var count = 0
     @Published var favoritePrimes: [Int] = []
+    @Published var activityFeed: [Activity] = []
+    @Published var loggedInUser: User?
+    
+    struct Activity {
+        let timestamp: Date
+        let type: ActivityType
+        
+        enum ActivityType {
+            case addedFavoritePrime(Int)
+            case removedFavoritePrime(Int)
+        }
+    }
+    
+    struct User {
+        let id: Int
+        let name: String
+        let bio: String
+    }
 }
 
 struct PrimeAlert: Identifiable {
@@ -101,7 +122,8 @@ struct PrimeAlert: Identifiable {
 struct CounterView: View {
     @ObservedObject var state: AppState
     @State var isPrimeModalShown: Bool = false
-    @State var alertNthPrime: Int?
+    @State var alertNthPrime: PrimeAlert?
+    @State var isNthPrimeButtonDisabled = false
     
     var body: some View {
         VStack {
@@ -112,30 +134,36 @@ struct CounterView: View {
                 
                 Text("\(self.state.count)")
                 
-                Button(action: { self.state.count += 1}) {
+                Button(action: { self.state.count += 1 }) {
                     Text("+")
                 }
             }
             Button(action: { self.isPrimeModalShown = true}) {
                 Text("Is this prime")
             }
-            Button(action: {
-                nthPrime(self.state.count) { prime in
-                    self.alertNthPrime = prime
-                }
-            }) {
-                Text("What is the 0th prime?")
+            Button(action: self.nthPrimeButtonAction) {
+                Text("What is the \(ordinal(self.state.count))th prime?")
             }
+            .disabled(self.isNthPrimeButtonDisabled)
         }
         .font(.title)
         .navigationBarTitle("Counter demo")
         .sheet(isPresented: self.$isPrimeModalShown) {
             IsPrimeModalView(state: self.state)
         }
-        .alert(item: self.$alertNthPrime) { n in
-            Alert(title: Text("The \(ordinal(self.state.count)) prime is \(n)"),
-                  dismissButton: Alert.Button.default(Text("ok"))
+        .alert(item: self.$alertNthPrime) { alert in
+            Alert(
+                title: Text("The \(ordinal(self.state.count)) prime is \(alert.prime)"),
+                dismissButton: .default(Text("ok"))
             )
+        }
+    }
+    
+    func nthPrimeButtonAction() {
+        self.isNthPrimeButtonDisabled = true
+        nthPrime(self.state.count) { prime in
+            self.alertNthPrime = prime.map(PrimeAlert.init(prime:))
+            self.isNthPrimeButtonDisabled = false
         }
     }
 }
@@ -159,12 +187,14 @@ struct IsPrimeModalView: View {
                 if self.state.favoritePrimes.contains(self.state.count) {
                     Button(action: {
                         self.state.favoritePrimes.removeAll(where: { $0 == self.state.count })
+                        self.state.activityFeed.append(.init(timestamp: Date(), type: .removedFavoritePrime(self.state.count)))
                     }) {
                         Text("Remove from favorite primes")
                     }
                 } else {
                     Button(action: {
                         self.state.favoritePrimes.append(self.state.count)
+                        self.state.activityFeed.append(.init(timestamp: Date(), type: .addedFavoritePrime(self.state.count)))
                     }) {
                         Text("Save to favorite primes")
                     }
@@ -176,8 +206,28 @@ struct IsPrimeModalView: View {
     }
 }
 
+struct FavoritePrimesState {
+    var favoritePrimes: [Int]
+    var activityFeed: [AppState.Activity]
+}
+
+extension AppState {
+    var favoritePrimeState: FavoritePrimesState {
+        get {
+            FavoritePrimesState(
+                favoritePrimes: self.favoritePrimes,
+                activityFeed: self.activityFeed
+            )
+        }
+        set {
+            self.favoritePrimes = newValue.favoritePrimes
+            self.activityFeed = newValue.activityFeed
+        }
+    }
+}
+
 struct FavoritePrimesView: View {
-    @ObservedObject var state: AppState
+    @Binding var state: FavoritePrimesState
     
     var body: some View {
         List {
@@ -186,14 +236,15 @@ struct FavoritePrimesView: View {
             }
             .onDelete { indexSet in
                 for index in indexSet {
+                    let prime = self.state.favoritePrimes[index]
                     self.state.favoritePrimes.remove(at: index)
+                    self.state.activityFeed.append(.init(timestamp: Date(), type: .removedFavoritePrime(prime)))
                 }
             }
         }
             .navigationBarTitle(Text("Favorite Primes"))
     }
 }
-
 
 import PlaygroundSupport
 
@@ -202,4 +253,3 @@ PlaygroundPage.current.liveView = UIHostingController(
     //    rootView: CounterView()
 )
 
-// 15:37
