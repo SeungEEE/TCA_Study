@@ -58,33 +58,19 @@ func nthPrime(_ n: Int, callback: @escaping (Int?) -> Void) -> Void {
 //    print(p)
 //}
 
-struct ContentView: View {
-    @ObservedObject var store: Store<AppState, AppAction>
-    
-    var body: some View {
-        NavigationView {
-            List {
-                NavigationLink(
-                    destination: CounterView(store: self.store)
-                ) {
-                    Text("Counter demo")
-                }
-                
-                NavigationLink(destination: FavoritePrimesView(
-                    store: self.store)
-                ) {
-                    Text("Favorite primes")
-                }
-            }
-            .navigationBarTitle("State management")
-        }
-    }
-}
-
 private func ordinal(_ n: Int) -> String {
     let formatter = NumberFormatter()
     formatter.numberStyle = .ordinal
     return formatter.string(for: n) ?? ""
+}
+
+private func isPrime (_ p: Int) -> Bool {
+    if p <= 1 { return false }
+    if p <= 3 { return true }
+    for i in 2...Int(sqrtf(Float(p))) {
+        if p % i == 0 { return false }
+    }
+    return true
 }
 
 //BindableObject
@@ -141,42 +127,69 @@ enum AppAction {
 // (Value, Action) -> Value
 // (inout Value, Action) -> Void
 
-
-func appReducer(state: inout AppState, action: AppAction) -> Void {
+func counterReducer(state: inout Int, action: AppAction) {
     switch action {
     case .counter(.decrTapped):
-        state.count -= 1
+        state -= 1
+        
     case .counter(.incrTapped):
-        state.count += 1
+        state += 1
+        
+    default:
+        break
+    }
+}
+
+func primeModalReducer(state: inout AppState, action: AppAction) {
+    switch action {
     case .primeModal(.saveFavoritePrimeTapped):
         state.favoritePrimes.removeAll(where: { $0 == state.count })
         state.activityFeed.append(.init(timestamp: Date(), type: .removedFavoritePrime(state.count)))
     case .primeModal(.removeFavoritePrimeTapped):
         state.favoritePrimes.append(state.count)
         state.activityFeed.append(.init(timestamp: Date(), type: .addedFavoritePrime(state.count)))
+    default:
+        break
+    }
+}
+
+struct FavoritePrimesState {
+    var favoritePrimes: [Int]
+    var activityFeed: [AppState.Activity]
+}
+
+func favoritePrimesReducer(state: inout FavoritePrimesState, action: AppAction) {
+    switch action {
     case let .favoritePrimes(.deleteFavoritePrimes(indexSet)):
         for index in indexSet {
             let prime = state.favoritePrimes[index]
             state.favoritePrimes.remove(at: index)
             state.activityFeed.append(.init(timestamp: Date(), type: .removedFavoritePrime(prime)))
         }
+    default:
+        break
     }
 }
 
-// [1, 2, 3].reduce(<#T##initialResult: Result##Result#>, <#T##nextPartialResult: (Result, Int) throws -> Result##(Result, Int) throws -> Result##(_ partialResult: Result, Int) throws -> Result#>)
+//func appReducer(state: inout AppState, action: AppAction) -> Void {
+//    switch action {
+//    
+//    }
+//}
 
-var state = AppState()
-//counterReducer(state: &state, action: .incrTapped)
-//counterReducer(state: &state, action: .decrTapped)
-
-//print(
-//    counterReducer(
-//        state: counterReducer(state: state, action: .incrTapped),
-//        action: .decrTapped
-//    )
-//)
-
-//counterReducer(state: state, action: .incrTapped)
+func combine<Value, Action>(
+    _ reducers: (inout Value, Action) -> Void...
+//    _ first: @escaping (inout Value, Action) -> Void,
+//    _ second: @escaping (inout Value, Action) -> Void
+) -> (inout Value, Action) -> Void {
+    return { value, action in
+        for reducer in reducers {
+            reducer(&value, action)
+        }
+//        first(&value, action)
+//        second(&value, action)
+    }
+}
 
 final class Store<Value, Action>: ObservableObject {
     let reducer: (inout Value, Action) -> Void
@@ -193,6 +206,61 @@ final class Store<Value, Action>: ObservableObject {
     }
 }
 
+func pullback<LocalValue, GlobalValue, Action> (
+    _ reducer: @escaping (inout LocalValue, Action) -> Void,
+    value: WritableKeyPath<GlobalValue, LocalValue>
+//    get: @escaping (GlobalValue) -> LocalValue,
+//    set: @escaping (inout GlobalValue, LocalValue) -> Void
+) -> (inout GlobalValue, Action) -> Void {
+    
+    return { globalValue, action in
+        reducer(&globalValue[keyPath: value], action)
+//        var localValue = get(globalValue)
+//        reducer(&localValue, action)
+//        set(&globalValue, localValue)
+    }
+}
+
+extension AppState {
+    var favoritePrimesState: FavoritePrimesState {
+        get {
+            return FavoritePrimesState(
+                favoritePrimes: self.favoritePrimes,
+                activityFeed: self.activityFeed
+            )
+        }
+        set {
+            self.favoritePrimes = newValue.favoritePrimes
+            self.activityFeed  = newValue.activityFeed
+        }
+    }
+}
+
+let _appReducer = combine(
+    pullback(counterReducer, value: \.count),
+    primeModalReducer,
+    pullback(favoritePrimesReducer, value: \.favoritePrimesState)
+)
+
+let appReducer = pullback(_appReducer, value: \.self)
+// combine(combine(counterReducer, primeModalReducer), favoritePrimesReducer)
+
+// [1, 2, 3].reduce(<#T##initialResult: Result##Result#>, <#T##nextPartialResult: (Result, Int) throws -> Result##(Result, Int) throws -> Result##(_ partialResult: Result, Int) throws -> Result#>)
+
+var state = AppState()
+//counterReducer(state: &state, action: .incrTapped)
+//counterReducer(state: &state, action: .decrTapped)
+
+//print(
+//    counterReducer(
+//        state: counterReducer(state: state, action: .incrTapped),
+//        action: .decrTapped
+//    )
+//)
+
+//counterReducer(state: state, action: .incrTapped)
+
+
 // Store<AppState>
 
 // @ObservedObject var state: AppState
@@ -203,7 +271,6 @@ final class Store<Value, Action>: ObservableObject {
 
 // (state: self.store.value)
 // -> (store: self.store)
-
 
 struct PrimeAlert: Identifiable {
     let prime: Int
@@ -255,15 +322,6 @@ struct CounterView: View {
     }
 }
 
-private func isPrime (_ p: Int) -> Bool {
-    if p <= 1 { return false }
-    if p <= 3 { return true }
-    for i in 2...Int(sqrtf(Float(p))) {
-        if p % i == 0 { return false }
-    }
-    return true
-}
-
 struct IsPrimeModalView: View {
     @ObservedObject var store: Store<AppState, AppAction>
     
@@ -285,11 +343,6 @@ struct IsPrimeModalView: View {
             }
         }
     }
-}
-
-struct FavoritePrimesState {
-    var favoritePrimes: [Int]
-    var activityFeed: [AppState.Activity]
 }
 
 extension AppState {
@@ -320,6 +373,29 @@ struct FavoritePrimesView: View {
             }
         }
             .navigationBarTitle(Text("Favorite Primes"))
+    }
+}
+
+struct ContentView: View {
+    @ObservedObject var store: Store<AppState, AppAction>
+    
+    var body: some View {
+        NavigationView {
+            List {
+                NavigationLink(
+                    destination: CounterView(store: self.store)
+                ) {
+                    Text("Counter demo")
+                }
+                
+                NavigationLink(destination: FavoritePrimesView(
+                    store: self.store)
+                ) {
+                    Text("Favorite primes")
+                }
+            }
+            .navigationBarTitle("State management")
+        }
     }
 }
 
