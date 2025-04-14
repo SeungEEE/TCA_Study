@@ -24,6 +24,11 @@ public func counterReducer(state: inout Int, action: CounterAction) {
     }
 }
 
+public let counterViewReducer = combine(
+    pullback(counterReducer, value: \CounterViewState.count, action: \CounterViewAction.counter),
+    pullback(primeModalReducer, value: \.self, action: \.primeModal)
+)
+
 struct PrimeAlert: Identifiable {
     let prime: Int
     var id: Int { self.prime }
@@ -34,6 +39,28 @@ public typealias CounterViewState = (count: Int, favoritePrimes: [Int])
 public enum CounterViewAction {
     case counter(CounterAction)
     case primeModal(PrimeModalAction)
+    
+    var counter: CounterAction? {
+        get {
+            guard case let .counter(value) = self else { return nil }
+            return value
+        }
+        set {
+            guard case .counter = self, let newValue = newValue else { return }
+            self = .counter(newValue)
+        }
+    }
+    
+    var primeModal: PrimeModalAction? {
+        get {
+            guard case let .primeModal(value) = self else { return nil }
+            return value
+        }
+        set {
+            guard case .primeModal = self, let newValue = newValue else { return }
+            self = .primeModal(newValue)
+        }
+    }
 }
 
 public struct CounterView: View {
@@ -87,7 +114,7 @@ public struct CounterView: View {
     }
 }
 
-public func nthPrime(_ n: Int, callback: @escaping (Int?) -> Void) -> Void {
+func nthPrime(_ n: Int, callback: @escaping (Int?) -> Void) -> Void {
     wolframAlpha(query: "prime \(n)") { result in
         callback(
             result
@@ -104,7 +131,7 @@ public func nthPrime(_ n: Int, callback: @escaping (Int?) -> Void) -> Void {
     }
 }
 
-public func ordinal(_ n: Int) -> String {
+func ordinal(_ n: Int) -> String {
     let formatter = NumberFormatter()
     formatter.numberStyle = .ordinal
     return formatter.string(for: n) ?? ""
