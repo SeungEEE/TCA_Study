@@ -12,11 +12,10 @@ import FavoritePrimes
 import Counter
 import PrimeModal
 
-
 struct AppState {
     var count = 0
     var favoritePrimes: [Int] = []
-//    var primeModal: PrimeModalState
+    //    var primeModal: PrimeModalState
     var loggedInUser: User? = nil
     var activityFeed: [Activity] = []
     
@@ -171,97 +170,6 @@ let appReducer = pullback(_appReducer, value: \.self, action: \.self)
 
 var state = AppState()
 
-struct PrimeAlert: Identifiable {
-    let prime: Int
-    var id: Int { self.prime }
-}
-
-typealias CounterViewState = (count: Int, favoritePrimes: [Int])
-
-struct CounterView: View {
-    @ObservedObject var store: Store<CounterViewState, AppAction>
-    @State var isPrimeModalShown = false
-    @State var alertNthPrime: PrimeAlert?
-    @State var isNthPrimeButtonDisabled = false
-    
-    var body: some View {
-        VStack {
-            HStack {
-                Button("-") { self.store.send(.counter(.decrTapped)) }
-                Text("\(self.store.value.count)")
-                Button("+") { self.store.send(.counter(.incrTapped)) }
-            }
-            Button("Is this prime?") { self.isPrimeModalShown = true }
-            Button(
-                "What is the \(ordinal(self.store.value.count)) prime?",
-                action: self.nthPrimeButtonAction
-            )
-            .disabled(self.isNthPrimeButtonDisabled)
-        }
-        .font(.title)
-        .navigationBarTitle("Counter demo")
-        .sheet(isPresented: self.$isPrimeModalShown) {
-            IsPrimeModalView(
-                store: self.store.view { ($0.count, $0.favoritePrimes) }
-            )
-        }
-        .alert(item: self.$alertNthPrime) { alert in
-            Alert(
-                title: Text("The \(ordinal(self.store.value.count)) prime is \(alert.prime)"),
-                dismissButton: .default(Text("Ok"))
-            )
-        }
-    }
-    
-    func nthPrimeButtonAction() {
-        self.isNthPrimeButtonDisabled = true
-        nthPrime(self.store.value.count) { prime in
-            self.alertNthPrime = prime.map(PrimeAlert.init(prime:))
-            self.isNthPrimeButtonDisabled = false
-        }
-    }
-}
-
-struct IsPrimeModalView: View {
-    @ObservedObject var store: Store<PrimeModalState, AppAction>
-    
-    var body: some View {
-        VStack {
-            if isPrime(self.store.value.count) {
-                Text("\(self.store.value.count) is prime 🎉")
-                if self.store.value.favoritePrimes.contains(self.store.value.count) {
-                    Button("Remove from favorite primes") {
-                        self.store.send(.primeModal(.removeFavoritePrimeTapped))
-                    }
-                } else {
-                    Button("Save to favorite primes") {
-                        self.store.send(.primeModal(.saveFavoritePrimeTapped))
-                    }
-                }
-            } else {
-                Text("\(self.store.value.count) is not prime :(")
-            }
-        }
-    }
-}
-
-struct FavoritePrimesView: View {
-    @ObservedObject var store: Store<[Int], AppAction>
-    
-    var body: some View {
-        List {
-            ForEach(self.store.value, id: \.self) { prime in
-                Text("\(prime)")
-            }
-            .onDelete { indexSet in
-                self.store.send(.favoritePrimes(.deleteFavoritePrimes(indexSet)))
-                self.store.send(.counter(.incrTapped))
-            }
-        }
-        .navigationBarTitle("Favorite Primes")
-    }
-}
-
 struct ContentView: View {
     @ObservedObject var store: Store<AppState, AppAction>
     
@@ -271,13 +179,26 @@ struct ContentView: View {
                 NavigationLink(
                     "Counter demo",
                     destination: CounterView(
-                        store: self.store.view { ($0.count, $0.favoritePrimes) }
+                        store: self.store.view(
+                            value: { ($0.count, $0.favoritePrimes) },
+                            action: {
+                                switch $0 {
+                                case let .counter(action):
+                                    return AppAction.counter(action)
+                                case let .primeModal(action):
+                                    return AppAction.primeModal(action)
+                                }
+                            }
+                        )
                     )
                 )
                 NavigationLink(
                     "Favorite primes",
                     destination: FavoritePrimesView(
-                        store: self.store.view { $0.favoritePrimes }
+                        store: self.store.view(
+                            value: { $0.favoritePrimes },
+                            action: { AppAction.favoritePrimes($0) }
+                        )
                     )
                 )
             }
