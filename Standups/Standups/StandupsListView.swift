@@ -43,7 +43,7 @@ struct StandupsListFeature: Reducer {
                 return .none
             }
         }
-        // 뭐임 이거
+        
         .ifLet(\.$addStandup, action: /Action.addStandup) {
             StandupFormFeature()
         }
@@ -57,8 +57,12 @@ struct StandupsListView: View {
         WithViewStore(self.store, observe: \.standups) { viewStore in
             List {
                 ForEach(viewStore.state) { standup in
-                    CardView(standup: standup)
-                        .listRowBackground(standup.theme.mainColor)
+                    NavigationLink(
+                        state: AppFeature.Path.State.detail(StandupDetailFeature.State(standup: standup))
+                    ) {
+                        CardView(standup: standup)
+                    }
+                    .listRowBackground(standup.theme.mainColor)
                 }
             }
             .navigationTitle("Daily Standups")
@@ -113,6 +117,8 @@ struct CardView: View {
             }
             .font(.caption)
         }
+        .padding()
+        .foregroundStyle(self.standup.theme.accentColor)
     }
 }
 

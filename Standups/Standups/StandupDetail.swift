@@ -16,11 +16,15 @@ struct StandupDetailFeature: Reducer {
     
     enum Action {
         case cancelEditStandupButtonTapped
+        case delegate(Delegate)
         case deleteButtonTapped
         case deleteMeetings(atOffsets: IndexSet)
         case editButtonTapped
         case editStandup(PresentationAction<StandupFormFeature.Action>)
         case saveStandupButtonTapped
+        enum Delegate {
+            case standupUpdated(Standup)
+        }
     }
     
     var body: some ReducerOf<Self> {
@@ -29,6 +33,10 @@ struct StandupDetailFeature: Reducer {
             case .cancelEditStandupButtonTapped:
                 state.editStandup
                 return .none
+                
+            case .delegate:
+                return .none
+                
             case .deleteButtonTapped:
                 return .none
             case .deleteMeetings(atOffsets: let indices):
@@ -44,11 +52,16 @@ struct StandupDetailFeature: Reducer {
                 else { return .none }
                 state.standup = standup
                 state.editStandup = nil
-                return .none
+                return .send(.delegate(.standupUpdated(state.standup)))
             }
         }
         .ifLet(\.$editStandup, action: /Action.editStandup) {
             StandupFormFeature()
+        }
+        .onChange(of: \.standup) { oldValue, newValue in
+            Reduce { state, action in
+                return .send(.delegate(.standupUpdated(newValue)))
+            }
         }
     }
 }
@@ -77,7 +90,7 @@ struct StandupDetailView: View {
                     HStack {
                         Label("Theme", systemImage: "paintpalette")
                         Spacer()
-                        Text("Bubblegum")
+                        Text(viewStore.standup.theme.name)
                             .padding(4)
                             .foregroundColor(viewStore.standup.theme.accentColor)
                             .background(viewStore.standup.theme.mainColor)
