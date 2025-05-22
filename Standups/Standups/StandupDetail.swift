@@ -10,20 +10,42 @@ import SwiftUI
 
 struct StandupDetailFeature: Reducer {
     struct State: Equatable {
-        @PresentationState var editStandup: StandupFormFeature.State?
+        @PresentationState var destination: Destination.State?
         var standup: Standup
     }
-    
-    enum Action {
+    enum Action: Equatable {
         case cancelEditStandupButtonTapped
         case delegate(Delegate)
         case deleteButtonTapped
         case deleteMeetings(atOffsets: IndexSet)
+        case destination(PresentationAction<Destination.Action>)
         case editButtonTapped
-        case editStandup(PresentationAction<StandupFormFeature.Action>)
         case saveStandupButtonTapped
-        enum Delegate {
+        enum Delegate: Equatable {
+            case deleteStandup(id: Standup.ID)
             case standupUpdated(Standup)
+        }
+    }
+    @Dependency(\.dismiss) var dismiss
+    
+    // @Environment(\.dismiss) var dismiss
+    
+    struct Destination: Reducer {
+        enum State: Equatable {
+            case alert(AlertState<Action.Alert>)
+            case editStandup(StandupFormFeature.State)
+        }
+        enum Action: Equatable {
+            case alert(Alert)
+            case editStandup(StandupFormFeature.Action)
+            enum Alert {
+                case confirmDeletion
+            }
+        }
+        var body: some ReducerOf<Self> {
+            Scope(state: /State.editStandup, action: /Action.editStandup) {
+                StandupFormFeature()
+            }
         }
     }
     
@@ -31,36 +53,55 @@ struct StandupDetailFeature: Reducer {
         Reduce { state, action in
             switch action {
             case .cancelEditStandupButtonTapped:
-                state.editStandup
+                state.destination = nil
                 return .none
                 
             case .delegate:
                 return .none
                 
             case .deleteButtonTapped:
+                state.destination = .alert(
+                    AlertState {
+                        TextState("Are you sure you want to delete?")
+                    } actions: {
+                        ButtonState(role: .destructive, action: .confirmDeletion) {
+                            TextState("Delete")
+                        }
+                    }
+                )
                 return .none
+                
             case .deleteMeetings(atOffsets: let indices):
                 state.standup.meetings.remove(atOffsets: indices)
                 return .none
-            case .editButtonTapped:
-                state.editStandup = StandupFormFeature.State(standup: state.standup)
+                
+            case .destination(.presented(.alert(.confirmDeletion))):
+                // TODO: Delete this standup
+                return .run { [id = state.standup.id] send in
+                    await send(.delegate(.deleteStandup(id: id)))
+                    await self.dismiss()
+                }
+                
+            case .destination:
                 return .none
-            case .editStandup:
+                
+            case .editButtonTapped:
+                state.destination = .editStandup(StandupFormFeature.State(standup: state.standup))
                 return .none
             case .saveStandupButtonTapped:
-                guard let standup = state.editStandup?.standup
+                guard case let .editStandup(standupForm) = state.destination
                 else { return .none }
-                state.standup = standup
-                state.editStandup = nil
-                return .send(.delegate(.standupUpdated(state.standup)))
+                state.standup = standupForm.standup
+                state.destination = nil
+                return .none
             }
         }
-        .ifLet(\.$editStandup, action: /Action.editStandup) {
-            StandupFormFeature()
+        .ifLet(\.$destination, action: /Action.destination) {
+            Destination()
         }
         .onChange(of: \.standup) { oldValue, newValue in
             Reduce { state, action in
-                return .send(.delegate(.standupUpdated(newValue)))
+                    .send(.delegate(.standupUpdated(newValue)))
             }
         }
     }
@@ -73,14 +114,13 @@ struct StandupDetailView: View {
         WithViewStore(self.store, observe: { $0 }) { viewStore in
             List {
                 Section {
-                    NavigationLink {
-                        
-                    } label: {
+                    NavigationLink(
+                        state: AppFeature.Path.State.recordMeeting(RecordMeetingFeature.State(standup: viewStore.standup))
+                    ) {
                         Label("Start Meeting", systemImage: "timer")
                             .font(.headline)
                             .foregroundColor(.accentColor)
                     }
-                    
                     HStack {
                         Label("Length", systemImage: "clock")
                         Spacer()
@@ -102,14 +142,14 @@ struct StandupDetailView: View {
                 
                 if !viewStore.standup.meetings.isEmpty {
                     Section {
-                        ForEach(viewStore.standup.meetings) { metting in
+                        ForEach(viewStore.standup.meetings) { meeting in
                             NavigationLink {
-                                
+                                /*@START_MENU_TOKEN@*//*@PLACEHOLDER=Do something@*//*@END_MENU_TOKEN@*/
                             } label: {
                                 HStack {
                                     Image(systemName: "calendar")
-                                    Text(metting.date, style: .date)
-                                    Text(metting.date, style: .time)
+                                    Text(meeting.date, style: .date)
+                                    Text(meeting.date, style: .time)
                                 }
                             }
                         }
@@ -143,22 +183,25 @@ struct StandupDetailView: View {
                     viewStore.send(.editButtonTapped)
                 }
             }
-            .sheet(store: self.store.scope(
-                state: \.$editStandup,
-                action: { .editStandup($0) })) { store in
+            .alert(
+                store: self.store.scope(state: \.$destination, action: { .destination($0) }),
+                state: /StandupDetailFeature.Destination.State.alert,
+                action: StandupDetailFeature.Destination.Action.alert
+            )
+            .sheet(
+                store: self.store.scope(state: \.$destination, action: { .destination($0) }),
+                state: /StandupDetailFeature.Destination.State.editStandup,
+                action: StandupDetailFeature.Destination.Action.editStandup
+            ) { store in
                 NavigationStack {
                     StandupFormView(store: store)
                         .navigationTitle("Edit standup")
                         .toolbar {
                             ToolbarItem {
-                                Button("Save") {
-                                    viewStore.send(.saveStandupButtonTapped)
-                                }
+                                Button("Save") { viewStore.send(.saveStandupButtonTapped) }
                             }
                             ToolbarItem(placement: .cancellationAction) {
-                                Button("Cancel") {
-                                    viewStore.send(.cancelEditStandupButtonTapped)
-                                }
+                                Button("Cancel") { viewStore.send(.cancelEditStandupButtonTapped) }
                             }
                         }
                 }
@@ -171,10 +214,10 @@ struct StandupDetailView: View {
     MainActor.assumeIsolated {
         NavigationStack {
             StandupDetailView(
-                store: Store(initialState:
-                        StandupDetailFeature.State(standup: .mock)) {
-                            StandupDetailFeature()
-                        }
+                store: Store(initialState: StandupDetailFeature.State(standup: .mock)) {
+                    StandupDetailFeature()
+                        ._printChanges()
+                }
             )
         }
     }
