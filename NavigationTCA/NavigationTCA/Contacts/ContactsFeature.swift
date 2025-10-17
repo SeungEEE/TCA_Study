@@ -33,15 +33,13 @@ struct ContactsFeature {
         )
         return .none
         
-      case .addContact(.presented(.cancelButtonTapped)):
-        state.addContact = nil
-        return .none
+//      case .addContact(.presented(.delegate(.cancel))):
+//        state.addContact = nil
+//        return .none
         
-      case .addContact(.presented(.saveButtonTapped)):
-        guard let contact = state.addContact?.contact
-        else { return .none }
+      case let .addContact(.presented(.delegate(.saveContact(contact)))):
         state.contacts.append(contact)
-        state.addContact = nil
+//        state.addContact = nil
         return .none
         
       case .addContact:
