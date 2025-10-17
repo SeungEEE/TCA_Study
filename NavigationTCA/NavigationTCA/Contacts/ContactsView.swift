@@ -39,13 +39,13 @@ struct ContactsView: View {
       }
     }
     .sheet(
-      item: $store.scope(state: \.addContact, action: \.addContact)
+      item: $store.scope(state: \.destination?.addContact, action: \.destination.addContact)
     ) { addContactStore in
       NavigationStack {
         AddContactView(store: addContactStore)
       }
     }
-    .alert($store.scope(state: \.alert, action: \.alert))
+    .alert($store.scope(state: \.destination?.alert, action: \.destination.alert))
   }
 }
 
